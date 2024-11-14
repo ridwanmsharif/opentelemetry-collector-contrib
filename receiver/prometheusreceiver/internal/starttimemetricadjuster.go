@@ -21,19 +21,27 @@ var (
 type startTimeMetricAdjuster struct {
 	startTimeMetricRegex *regexp.Regexp
 	fallbackStartTime    *time.Time
+	resetPointAdjuster   *initialPointAdjuster
 	logger               *zap.Logger
 }
 
 // NewStartTimeMetricAdjuster returns a new MetricsAdjuster that adjust metrics' start times based on a start time metric.
-func NewStartTimeMetricAdjuster(logger *zap.Logger, startTimeMetricRegex *regexp.Regexp, useCollectorStartTimeFallback bool) MetricsAdjuster {
+func NewStartTimeMetricAdjuster(logger *zap.Logger, startTimeMetricRegex *regexp.Regexp, useCollectorStartTimeFallback bool, gcInterval time.Duration) MetricsAdjuster {
 	var fallbackStartTime *time.Time
 	if useCollectorStartTimeFallback {
 		now := time.Now()
 		fallbackStartTime = &now
 	}
+	resetPointAdjuster := &initialPointAdjuster{
+		jobsMap:              NewJobsMap(gcInterval),
+		logger:               logger,
+		useCreatedMetric:     false,
+		usePointTimeForReset: true,
+	}
 	return &startTimeMetricAdjuster{
 		startTimeMetricRegex: startTimeMetricRegex,
 		fallbackStartTime:    fallbackStartTime,
+		resetPointAdjuster:   resetPointAdjuster,
 		logger:               logger,
 	}
 }
@@ -97,7 +105,8 @@ func (stma *startTimeMetricAdjuster) AdjustMetrics(metrics pmetric.Metrics) erro
 		}
 	}
 
-	return nil
+	// Handle resets.
+	return stma.resetPointAdjuster.AdjustMetrics(metrics)
 }
 
 func (stma *startTimeMetricAdjuster) getStartTime(metrics pmetric.Metrics) (float64, error) {
